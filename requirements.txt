@@ -1,3 +1,7 @@
+# GUI
 PyQt6>=6.6
+# Excel exports (.xlsx)
 openpyxl>=3.1
+# Required by openpyxl to embed the chart image in the "Excel" export
 Pillow>=10.0
+# draw.io export uses only the standard library (xml.etree)

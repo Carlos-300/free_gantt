@@ -29,10 +29,17 @@ class TaskDialog(QDialog):
     def __init__(self, parent=None, task: Task | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Editar tarea" if task else "Nueva tarea")
+        fuente = self.font()
+        fuente.setPointSize(fuente.pointSize() + 2)
+        self.setFont(fuente)
+        self.setMinimumWidth(520)
         self.color = task.color if task else "#4f86f7"
 
         self.nombre = QLineEdit(task.name if task else "")
         self.nombre.setPlaceholderText("Nombre de la tarea")
+
+        self.responsable = QLineEdit(task.responsible if task else "")
+        self.responsable.setPlaceholderText("Persona a cargo")
 
         self.inicio = QDateEdit(_to_qdate(task.start) if task else _to_qdate(date.today()))
         self.fin = QDateEdit(_to_qdate(task.end) if task else _to_qdate(date.today()))
@@ -46,12 +53,15 @@ class TaskDialog(QDialog):
         self.progreso.setValue(task.progress if task else 0)
 
         self.btn_color = QPushButton()
-        self.btn_color.setFixedWidth(90)
+        self.btn_color.setFixedWidth(120)
         self.btn_color.clicked.connect(self._elegir_color)
         self._mostrar_color()
 
         form = QFormLayout()
+        form.setVerticalSpacing(12)
+        form.setHorizontalSpacing(16)
         form.addRow("Nombre:", self.nombre)
+        form.addRow("Responsable:", self.responsable)
         form.addRow("Inicio:", self.inicio)
         form.addRow("Fin:", self.fin)
         form.addRow("Progreso:", self.progreso)
@@ -64,6 +74,8 @@ class TaskDialog(QDialog):
         botones.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 16)
+        layout.setSpacing(16)
         layout.addLayout(form)
         layout.addWidget(botones)
 
@@ -98,4 +110,5 @@ class TaskDialog(QDialog):
             "duration": ini.daysTo(fin) + 1,
             "progress": self.progreso.value(),
             "color": self.color,
+            "responsible": self.responsable.text().strip(),
         }

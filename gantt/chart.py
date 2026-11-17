@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QWidget
 
 from .models import Project
 
-LABEL_W = 230
+LABEL_W = 280
 HEADER_MONTH_H = 26
 HEADER_DAY_H = 28
 HEADER_H = HEADER_MONTH_H + HEADER_DAY_H
@@ -268,7 +268,9 @@ class GanttChart(QWidget):
                 for x in (rect_barra.left(), rect_barra.right() - HANDLE + 2):
                     p.drawRect(QRectF(x, rect_barra.top() + 4, HANDLE - 2, rect_barra.height() - 8))
 
-            texto = fm.elidedText(task.name, Qt.TextElideMode.ElideRight, LABEL_W - 14)
+            # Elide only the name so the [responsible] tag always stays visible (e.g. in PNG export).
+            sufijo = f" [{task.responsible}]" if task.responsible else ""
+            texto = fm.elidedText(task.name, Qt.TextElideMode.ElideRight, LABEL_W - 14 - fm.horizontalAdvance(sufijo)) + sufijo
             p.setPen(QColor("#1f2733"))
             p.drawText(QRectF(10, y, LABEL_W - 14, ROW_H), Qt.AlignmentFlag.AlignVCenter, texto)
 

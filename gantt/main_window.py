@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 
 from .chart import HEADER_H, ROW_H, GanttChart
 from .dialogs import TaskDialog
+from .drawio import save_drawio
 from .models import PALETA, Project, sample_project
 
 Filtro = "Proyecto Gantt (*.gantt.json);;Todos los archivos (*)"
@@ -54,7 +55,7 @@ class MainWindow(QMainWindow):
         self._crear_panel_tareas()
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.panel_tareas)
-        splitter.addWidget(self.scroll)
+        splitter.addWidget(self._crear_panel_carta())
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
         splitter.setChildrenCollapsible(False)
@@ -64,19 +65,19 @@ class MainWindow(QMainWindow):
         self._crear_estado()
         self._actualizar_todo()
 
-        self.resize(1240, 660)
-        splitter.setSizes([400, 900])
+        self.resize(1440, 760)
+        splitter.setSizes([540, 900])
 
     def _crear_panel_tareas(self) -> None:
-        self.tabla = QTableWidget(0, 5)
-        self.tabla.setHorizontalHeaderLabels(["Tarea", "Inicio", "Fin", "Duración", "Progreso"])
+        self.tabla = QTableWidget(0, 6)
+        self.tabla.setHorizontalHeaderLabels(["Tarea", "Responsable", "Inicio", "Fin", "Duración", "Progreso"])
         self.tabla.verticalHeader().setVisible(False)
         self.tabla.verticalHeader().setDefaultSectionSize(30)
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for col in range(1, 5):
+        for col in range(1, 6):
             self.tabla.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.tabla.cellDoubleClicked.connect(lambda *_: self._editar_tarea(self.chart.selected_id))
         self.tabla.currentCellChanged.connect(self._seleccion_desde_tabla)
@@ -93,6 +94,8 @@ class MainWindow(QMainWindow):
         botones.addWidget(btn_edit)
         botones.addWidget(btn_del)
         botones.addStretch(1)
+        for texto, delta, atajo in (("▲ Subir", -1, "Alt+Up"), ("▼ Bajar", 1, "Alt+Down")):
+            botones.addWidget(self._boton_accion(texto, lambda *_, d=delta: self._mover_tarea(d), atajo))
 
         layout = QVBoxLayout()
         layout.setContentsMargins(4, 4, 4, 4)
@@ -101,7 +104,50 @@ class MainWindow(QMainWindow):
 
         self.panel_tareas = QWidget()
         self.panel_tareas.setLayout(layout)
-        self.panel_tareas.setMinimumWidth(360)
+        self.panel_tareas.setMinimumWidth(480)
+
+    def _boton_accion(self, texto, slot, atajo) -> QToolButton:
+        # The action lives on the window so its shortcut works regardless of focus.
+        act = QAction(texto, self)
+        act.triggered.connect(slot)
+        act.setShortcut(QKeySequence(atajo))
+        act.setToolTip(f"{texto} ({atajo})")
+        self.addAction(act)
+        boton = QToolButton()
+        boton.setDefaultAction(act)
+        return boton
+
+    def _crear_panel_carta(self) -> QWidget:
+        barra = QHBoxLayout()
+        barra.addWidget(QLabel("Vista de la carta:"))
+        for texto, slot, atajo in (
+            ("Zoom −", self.chart.zoom_out, "Ctrl+-"),
+            ("Zoom +", self.chart.zoom_in, "Ctrl++"),
+            ("Ajustar", self._ajustar, "Ctrl+0"),
+        ):
+            barra.addWidget(self._boton_accion(texto, slot, atajo))
+        barra.addStretch(1)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.addLayout(barra)
+        layout.addWidget(self.scroll)
+        panel = QWidget()
+        panel.setLayout(layout)
+        return panel
+
+    def _mover_tarea(self, delta: int) -> None:
+        tarea = self.project.get_task(self.chart.selected_id)
+        if tarea is None:
+            return
+        i = self.project.tasks.index(tarea)
+        j = i + delta
+        if not 0 <= j < len(self.project.tasks):
+            return
+        tareas = self.project.tasks
+        tareas[i], tareas[j] = tareas[j], tareas[i]
+        self._marcar_sucio()
+        self._centrar_en_tarea(tarea.id)
 
     def _crear_toolbar(self) -> None:
         tb = QToolBar("Principal")
@@ -131,6 +177,7 @@ class MainWindow(QMainWindow):
             ("Guardar como Excel…", self._exportar_excel, None),
             ("Guardar como Excel nativo…", self._exportar_excel_nativo, None),
             ("Guardar como PNG…", self._exportar_png, None),
+            ("Guardar como draw.io…", self._exportar_drawio, None),
         ):
             act = QAction(texto, self)
             act.triggered.connect(slot)
@@ -142,11 +189,6 @@ class MainWindow(QMainWindow):
                 menu_guardar.addSeparator()
         btn_guardar.setMenu(menu_guardar)
         tb.addWidget(btn_guardar)
-
-        tb.addSeparator()
-        accion("Zoom +", self.chart.zoom_in, "Ctrl++")
-        accion("Zoom −", self.chart.zoom_out, "Ctrl+-")
-        accion("Ajustar", self._ajustar, "Ctrl+0")
 
     def _crear_estado(self) -> None:
         self.status = QLabel("")
@@ -169,6 +211,7 @@ class MainWindow(QMainWindow):
         for i, t in enumerate(self.project.tasks):
             valores = [
                 t.name,
+                t.responsible,
                 t.start.strftime("%d/%m/%Y"),
                 t.end.strftime("%d/%m/%Y"),
                 f"{t.duration} d",
@@ -245,6 +288,7 @@ class MainWindow(QMainWindow):
             provisional.duration = valores["duration"]
             provisional.progress = valores["progress"]
             provisional.color = valores["color"]
+            provisional.responsible = valores["responsible"]
             self.chart.selected_id = provisional.id
             self._marcar_sucio()
             self._centrar_en_tarea(provisional.id)
@@ -265,6 +309,7 @@ class MainWindow(QMainWindow):
             tarea.duration = valores["duration"]
             tarea.progress = valores["progress"]
             tarea.color = valores["color"]
+            tarea.responsible = valores["responsible"]
             self._marcar_sucio()
             self._centrar_en_tarea(tarea.id)
 
@@ -361,25 +406,26 @@ class MainWindow(QMainWindow):
             ws.append([f"Proyecto: {self.project.name}"])
             ws["A1"].font = Font(bold=True)
             ws.append([])
-            ws.append(["Tarea", "Inicio", "Fin", "Duración (días)", "Progreso (%)", "Inicio (días)", "Hecho (días)", "Restante (días)"])
+            ws.append(["Tarea", "Inicio", "Fin", "Duración (días)", "Progreso (%)", "Inicio (días)", "Hecho (días)", "Restante (días)", "Responsable"])
             for celda in ws[3]:
                 celda.font = Font(bold=True, color="FFFFFF")
                 celda.fill = PatternFill("solid", fgColor="2F3640")
                 celda.alignment = Alignment(horizontal="center")
 
             inicio_proj = min((t.start for t in self.project.tasks), default=date.today())
+            epoch = date(1899, 12, 30)  # Excel date serial origin
             filas = []
             for t in self.project.tasks:
                 hecho = round(t.duration * t.progress / 100)
-                filas.append((t, (t.start - inicio_proj).days, hecho, t.duration - hecho))
+                filas.append((t, (t.start - epoch).days, hecho, t.duration - hecho))
             for t, offset, hecho, resto in filas:
-                ws.append([t.name, t.start, t.end, t.duration, t.progress, offset, hecho, resto])
+                ws.append([t.name, t.start, t.end, t.duration, t.progress, offset, hecho, resto, t.responsible])
                 fila = ws.max_row
                 ws.cell(row=fila, column=2).number_format = "DD/MM/YYYY"
                 ws.cell(row=fila, column=3).number_format = "DD/MM/YYYY"
                 for col in (4, 5, 6, 7, 8):
                     ws.cell(row=fila, column=col).alignment = Alignment(horizontal="center")
-            for col, ancho in zip("ABCDEFGH", (36, 13, 13, 15, 13, 13, 12, 14)):
+            for col, ancho in zip("ABCDEFGHI", (36, 13, 13, 15, 13, 13, 12, 14, 24)):
                 ws.column_dimensions[col].width = ancho
             for col in "FGH":
                 ws.column_dimensions[col].hidden = True
@@ -440,14 +486,18 @@ class MainWindow(QMainWindow):
                         pt=[NumVal(idx=i, v=valor) for i, valor in enumerate(valores)],
                     )
 
-                epoch = date(1899, 12, 30)
                 fin_proj = max((t.end for t in self.project.tasks), default=inicio_proj) + timedelta(days=5)
                 chart.x_axis.scaling.orientation = "maxMin"
                 chart.x_axis.axPos = "l"
                 chart.y_axis.axPos = "b"
                 chart.y_axis.scaling.min = (inicio_proj - epoch).days
                 chart.y_axis.scaling.max = (fin_proj - epoch).days
-                chart.y_axis.number_format = "DD/MM/YY"
+                # openpyxl >= 3.1 hides axes unless delete is explicitly False
+                chart.x_axis.delete = False
+                chart.y_axis.delete = False
+                # keep date axis at the bottom despite reversed task order
+                chart.y_axis.crosses = "max"
+                chart.y_axis.number_format = "dd-mmm-yy"
                 span = (fin_proj - inicio_proj).days
                 for paso in (1, 2, 7, 14, 30, 60, 90, 180, 365):
                     if span / paso <= 12:
@@ -455,7 +505,7 @@ class MainWindow(QMainWindow):
                         break
                 chart.width = 24
                 chart.height = max(8, min(30, n * 0.8))
-                ws.add_chart(chart, "J3")
+                ws.add_chart(chart, "K3")
             wb.save(ruta)
             return True
         except Exception:
@@ -469,6 +519,17 @@ class MainWindow(QMainWindow):
             ruta += ".png"
         if not self._guardar_png(ruta):
             QMessageBox.critical(self, "Error", "No se pudo exportar la imagen.")
+
+    def _exportar_drawio(self) -> None:
+        ruta, _ = QFileDialog.getSaveFileName(self, "Guardar como draw.io", "carta_gantt.drawio", "Diagrama draw.io (*.drawio)")
+        if not ruta:
+            return
+        if not ruta.lower().endswith(".drawio"):
+            ruta += ".drawio"
+        try:
+            save_drawio(self.project, ruta)
+        except OSError as exc:
+            QMessageBox.critical(self, "Error", f"No se pudo guardar el archivo draw.io:\n{exc}")
 
     def _guardar_png(self, ruta: str) -> bool:
         return self.chart.grab().save(ruta, "PNG")
@@ -502,19 +563,19 @@ class MainWindow(QMainWindow):
             ws.append([f"Proyecto: {self.project.name}"])
             ws["A1"].font = Font(bold=True)
             ws.append([])
-            ws.append(["Tarea", "Inicio", "Fin", "Duración (días)", "Progreso (%)"])
+            ws.append(["Tarea", "Inicio", "Fin", "Duración (días)", "Progreso (%)", "Responsable"])
             for celda in ws[3]:
                 celda.font = Font(bold=True, color="FFFFFF")
                 celda.fill = PatternFill("solid", fgColor="2F3640")
                 celda.alignment = Alignment(horizontal="center")
             for t in self.project.tasks:
-                ws.append([t.name, t.start, t.end, t.duration, t.progress])
+                ws.append([t.name, t.start, t.end, t.duration, t.progress, t.responsible])
                 fila = ws.max_row
                 ws.cell(row=fila, column=2).number_format = "DD/MM/YYYY"
                 ws.cell(row=fila, column=3).number_format = "DD/MM/YYYY"
                 for col in (4, 5):
                     ws.cell(row=fila, column=col).alignment = Alignment(horizontal="center")
-            for col, ancho in zip("ABCDE", (36, 13, 13, 15, 13)):
+            for col, ancho in zip("ABCDEF", (36, 13, 13, 15, 13, 24)):
                 ws.column_dimensions[col].width = ancho
 
             ws.cell(row=ws.max_row + 2, column=1, value="Carta Gantt").font = Font(bold=True)

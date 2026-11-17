@@ -16,6 +16,7 @@ class Task:
     duration: int = 1
     progress: int = 0
     color: str = "#4f86f7"
+    responsible: str = ""
 
     @property
     def end(self) -> date:
@@ -29,6 +30,7 @@ class Task:
             "duration": self.duration,
             "progress": self.progress,
             "color": self.color,
+            "responsible": self.responsible,
         }
 
     @staticmethod
@@ -40,6 +42,7 @@ class Task:
             duration=max(1, int(data.get("duration", 1))),
             progress=max(0, min(100, int(data.get("progress", 0)))),
             color=str(data.get("color", "#4f86f7")),
+            responsible=str(data.get("responsible", "")),
         )
 
 
@@ -56,8 +59,9 @@ class Project:
         duration: int = 1,
         progress: int = 0,
         color: str = "#4f86f7",
+        responsible: str = "",
     ) -> Task:
-        task = Task(self._next_id, name, start, max(1, duration), progress, color)
+        task = Task(self._next_id, name, start, max(1, duration), progress, color, responsible)
         self._next_id += 1
         self.tasks.append(task)
         return task
